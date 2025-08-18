@@ -1,0 +1,104 @@
+---
+- name: Push dual publish config & certs to edge devices (native + minimal)
+  hosts: edge_devices
+  become: yes
+  gather_facts: no
+
+  vars:
+    # Paths on the edge device
+    edge_credentials_dest: /etc/greengrass/certs
+    uploader_config_path: /etc/greengrass/uploader.conf
+
+    # Local (controller) source files
+    primary_cert_src: "../files/cert.pem"
+    primary_key_src:  "../files/private.key"
+    dr_cert_src:      "../files/cert-dr.pem"   # optional
+
+    # Endpoints (passed in or overridden by -e)
+    primary_endpoint: "<primary-iot-endpoint>"
+    dr_endpoint: "<dr-iot-endpoint>"
+
+    # Optional: install Amazon Root CA on devices (recommended)
+    ensure_root_ca: true
+    root_ca_url: https://www.amazontrust.com/repository/AmazonRootCA1.pem
+    root_ca_dest: "{{ edge_credentials_dest }}/AmazonRootCA1.pem"
+
+  handlers:
+    - name: restart greengrass
+      block:
+        - name: Restart greengrass via system service
+          ansible.builtin.service:
+            name: greengrass
+            state: restarted
+          register: gg_restart
+          failed_when: false
+
+        - name: Fallback launcher (v1/custom installs)
+          ansible.builtin.shell: |
+            if command -v systemctl >/dev/null 2>&1; then
+              systemctl restart greengrass || true
+            elif [ -x /greengrass/greengrassd ]; then
+              /greengrass/greengrassd restart || /greengrass/greengrassd start || true
+            fi
+          args:
+            warn: false
+          when: gg_restart is failed or (gg_restart is defined and gg_restart.failed | default(false))
+          changed_when: true
+
+  tasks:
+    - name: Ensure certs directory exists
+      ansible.builtin.file:
+        path: "{{ edge_credentials_dest }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Check on the controller whether an optional DR cert exists
+    - name: Check DR cert availability on controller
+      ansible.builtin.stat:
+        path: "{{ dr_cert_src }}"
+      register: dr_cert_stat
+      delegate_to: localhost
+      run_once: true
+
+    - name: Copy primary certificate
+      ansible.builtin.copy:
+        src: "{{ primary_cert_src }}"
+        dest: "{{ edge_credentials_dest }}/cert.pem"
+        mode: "0644"
+      notify: restart greengrass
+
+    - name: Copy primary private key
+      ansible.builtin.copy:
+        src: "{{ primary_key_src }}"
+        dest: "{{ edge_credentials_dest }}/private.key"
+        mode: "0600"
+      notify: restart greengrass
+
+    - name: Copy DR certificate if provided
+      ansible.builtin.copy:
+        src: "{{ dr_cert_src }}"
+        dest: "{{ edge_credentials_dest }}/cert-dr.pem"
+        mode: "0644"
+      when: dr_cert_stat.stat.exists
+      notify: restart greengrass
+
+    - name: (Optional) Install Amazon Root CA
+      ansible.builtin.get_url:
+        url: "{{ root_ca_url }}"
+        dest: "{{ root_ca_dest }}"
+        mode: "0644"
+        force: no
+      when: ensure_root_ca
+      notify: restart greengrass
+
+    - name: Render uploader config (both endpoints)
+      ansible.builtin.template:
+        src: "../templates/uploader-config.j2"
+        dest: "{{ uploader_config_path }}"
+        mode: "0644"
+      vars:
+        primary_endpoint: "{{ primary_endpoint }}"
+        dr_endpoint: "{{ dr_endpoint }}"
+      notify: restart greengrass

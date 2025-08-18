@@ -1,0 +1,41 @@
+
+
+// for 08.
+    // Make sure your IoT policy JSON is at ../files/iot_policy.json (relative to the playbook).
+        ansible-playbook -i localhost, iot-dr.yml \
+            -e aws_profile=default \
+            -e aws_dr_region=ap-southeast-1 \
+            -e thing_name=my-device-dr \
+            -e iot_policy_name=my-iot-policy-dr \
+            -e provision_certificate=true
+
+    // OR attach an existing certificate instead:
+        ansible-playbook -i localhost, iot-dr.yml \
+            -e aws_profile=default \
+            -e aws_dr_region=ap-southeast-1 \
+            -e thing_name=my-device-dr \
+            -e iot_policy_name=my-iot-policy-dr \
+            -e provision_certificate=false \
+            -e existing_certificate_arn="arn:aws:iot:ap-southeast-1:123456789012:cert/xxxxxxxx"
+
+    // Verify it worked
+        # CloudFormation stack
+        aws cloudformation describe-stacks --stack-name iot-dr-my-device-dr --region ap-southeast-1 --profile default
+
+        # Thing exists?
+        aws iot describe-thing --thing-name my-device-dr --region ap-southeast-1 --profile default
+
+        # Show principals (certs) attached to the thing
+        aws iot list-thing-principals --thing-name my-device-dr --region ap-southeast-1 --profile default
+
+        # Policies attached to a certificate
+        aws iot list-attached-policies --target <CERT_ARN> --region ap-southeast-1 --profile default
+
+    // If you provisioned a new cert via CSR, you can retrieve the certificate PEM later:
+        aws iot describe-certificate --certificate-id <CERT_ID> \
+            --query 'certificateDescription.certificatePem' --output text \
+            --region ap-southeast-1 --profile default > device.cert.pem
+
+    // Teardown
+        aws cloudformation delete-stack --stack-name iot-dr-my-device-dr \
+            --region ap-southeast-1 --profile default        

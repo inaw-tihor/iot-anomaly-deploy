@@ -1,0 +1,64 @@
+---
+- name: Sync model artifacts to DR S3 (native modules + minimal cost)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    aws_primary_region: ap-south-1
+    aws_dr_region: ap-southeast-1
+
+    s3_model_bucket: your-model-bucket
+    s3_model_bucket_dr: your-model-bucket-dr
+
+    # Cost/Scope knobs
+    sync_prefix: ""                 # e.g., "models/" to limit what you copy
+    transition_days: 30             # move to IA after 30d to cut storage
+    abort_multipart_days: 7         # clean up failed uploads
+
+    common_tags:
+      Project: GENAI4SAAS
+      Env: dev
+
+  tasks:
+    - name: Ensure DR model bucket exists (encrypted, block public)
+      amazon.aws.s3_bucket:
+        name: "{{ s3_model_bucket_dr }}"
+        region: "{{ aws_dr_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        versioning: false
+        encryption: AES256
+        public_access:
+          block_public_acls: true
+          ignore_public_acls: true
+          block_public_policy: true
+          restrict_public_buckets: true
+        tags: "{{ common_tags | combine({'Name': 'model-dr'}) }}"
+      # Doc: manage S3 buckets via module (handles us-east-1 quirks). :contentReference[oaicite:0]{index=0}
+
+    - name: Lifecycle transition to STANDARD_IA and abort incomplete uploads
+      community.aws.s3_lifecycle:
+        name: "{{ s3_model_bucket_dr }}"
+        region: "{{ aws_dr_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        status: enabled
+        storage_class: standard_ia
+        transition_days: "{{ transition_days }}"
+        abort_incomplete_multipart_upload_days: "{{ abort_multipart_days }}"
+      # Doc: lifecycle transitions & examples (e.g., → STANDARD_IA). :contentReference[oaicite:1]{index=1}
+
+    - name: Copy objects from primary model bucket to DR (prefix-aware)
+      amazon.aws.s3_object:
+        mode: copy
+        bucket: "{{ s3_model_bucket_dr }}"   # destination
+        region: "{{ aws_dr_region }}"
+        profile: "{{ aws_profile }}"
+        copy_src:
+          bucket: "{{ s3_model_bucket }}"    # source
+          prefix: "{{ sync_prefix }}"        # "" copies all keys
+        encrypt: true
+        encryption_mode: AES256
+      # Doc: s3_object supports S3→S3 copy with optional prefix. :contentReference[oaicite:2]{index=2}

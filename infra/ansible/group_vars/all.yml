@@ -1,0 +1,24 @@
+aws_profile: "iot-admin"
+aws_primary_region: "us-east-1"
+aws_dr_region: "us-west-2"
+aws_account_id: "247590354562"
+tenant_id: "tenant001"
+
+s3_data_lake_bucket: "iot-data-lake-{{ tenant_id }}-{{ aws_primary_region }}"
+s3_model_bucket: "iot-models-{{ tenant_id }}-{{ aws_primary_region }}"
+s3_backup_bucket: "iot-backup-{{ tenant_id }}-{{ aws_primary_region }}"
+
+s3_data_lake_bucket_dr: "iot-data-lake-{{ tenant_id }}-{{ aws_dr_region }}"
+s3_model_bucket_dr: "iot-models-{{ tenant_id }}-{{ aws_dr_region }}"
+
+dynamodb_table: "anomaly-results-{{ tenant_id }}"
+kinesis_stream: "anomaly-stream-{{ tenant_id }}"
+sagemaker_model_name: "anomaly-detector-{{ tenant_id }}"
+
+iot_policy_name: "Tenant{{ tenant_id }}IoTPolicy"
+thing_name: "tenant{{ tenant_id }}-device1"
+
+edge_credentials_dest: "/greengrass/certs"
+uploader_config_path: "/greengrass/config/uploader.conf"
+
+semaphore_workdir: "/workdir"

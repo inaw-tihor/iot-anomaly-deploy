@@ -1,0 +1,54 @@
+---
+- name: Create SageMaker model in DR (native + minimal cost)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    aws_dr_region: ap-southeast-1
+    aws_account_id: "123456789012"
+
+    sagemaker_model_name: anomaly-detector
+    s3_model_bucket_dr: your-model-bucket-dr
+    model_artifact_key: anomaly-detector.tar.gz
+
+    # ECR image in DR
+    ecr_repo: anomaly-detector
+    ecr_tag: latest
+
+    common_tags:
+      Project: GENAI4SAAS
+      Env: dr
+
+  tasks:
+    - name: Ensure SageMaker model exists (CloudFormation)
+      amazon.aws.cloudformation:
+        stack_name: "sm-model-{{ sagemaker_model_name }}-dr"
+        region: "{{ aws_dr_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        disable_rollback: true
+        template_body: |
+          AWSTemplateFormatVersion: '2010-09-09'
+          Description: SageMaker model for DR region
+          Resources:
+            DRModel:
+              Type: AWS::SageMaker::Model
+              Properties:
+                ModelName: !Sub "{{ sagemaker_model_name }}-dr"
+                ExecutionRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/SageMakerExecutionRole"
+                PrimaryContainer:
+                  Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/{{ ecr_repo }}:{{ ecr_tag }}"
+                  ModelDataUrl: !Sub "s3://{{ s3_model_bucket_dr }}/{{ model_artifact_key }}"
+                Tags:
+                  - Key: Project
+                    Value: {{ common_tags.Project }}
+                  - Key: Env
+                    Value: {{ common_tags.Env }}
+      register: cfn
+
+    - name: Show stack result
+      debug:
+        var: cfn
+      when: cfn is defined

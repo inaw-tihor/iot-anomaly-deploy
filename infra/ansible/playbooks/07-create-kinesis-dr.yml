@@ -1,0 +1,36 @@
+---
+- name: Create Kinesis stream in DR (native modules + minimal cost)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    aws_dr_region: ap-southeast-1
+    kinesis_stream: your-stream          # base name; DR stream will be "<name>-dr"
+
+    # cost knobs
+    shards: 1                             # lowest hourly cost in provisioned mode
+    retention_hours: 24                   # default (min); leave at 24 for lowest cost
+    encrypt_at_rest: false                # set true to enable KMS-managed encryption
+
+    common_tags:
+      Project: GENAI4SAAS
+      Env: dr
+
+  tasks:
+    - name: Ensure DR Kinesis stream exists (provisioned, 1 shard)
+      community.aws.kinesis_stream:
+        name: "{{ kinesis_stream }}-dr"
+        region: "{{ aws_dr_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        shards: "{{ shards }}"
+        retention_period: "{{ retention_hours }}"
+        # Encryption: off by default to avoid KMS API costs; flip encrypt_at_rest to true if needed
+        encryption_state: "{{ 'enabled' if encrypt_at_rest else 'disabled' }}"
+        encryption_type: KMS
+        key_id: alias/aws/kinesis
+        tags: "{{ common_tags }}"
+        wait: true
+        wait_timeout: 600

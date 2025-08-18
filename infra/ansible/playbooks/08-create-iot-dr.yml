@@ -1,0 +1,134 @@
+---
+- name: IoT Core (DR) – thing, policy, and optional cert (native + idempotent + minimal cost)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    aws_dr_region: ap-southeast-1
+
+    thing_name: my-device-dr
+    iot_policy_name: my-iot-policy-dr
+    # Read your existing policy JSON from repo (no temp files)
+    iot_policy_obj: "{{ lookup('file', '../files/iot_policy.json') | from_json }}"
+
+    # === Certificate options ===
+    provision_certificate: false        # set true to create a new cert via CSR
+    existing_certificate_arn: ""        # OR set an existing cert ARN to attach
+    cert_dir: "/tmp/iot/{{ thing_name }}"   # where to keep key/csr locally
+    csr_common_name: "{{ thing_name }}"     # CN for CSR
+
+    common_tags:
+      Project: GENAI4SAAS
+      Env: dr
+
+  pre_tasks:
+    - name: Ensure local cert dir exists (only if provisioning)
+      file:
+        path: "{{ cert_dir }}"
+        state: directory
+        mode: "0700"
+      when: provision_certificate
+
+    - name: Generate device private key (RSA 2048) – kept locally
+      community.crypto.openssl_privatekey:
+        path: "{{ cert_dir }}/device.key.pem"
+        size: 2048
+        type: RSA
+        mode: "0600"
+      when: provision_certificate
+
+    - name: Generate CSR for device certificate
+      community.crypto.openssl_csr:
+        path: "{{ cert_dir }}/device.csr.pem"
+        privatekey_path: "{{ cert_dir }}/device.key.pem"
+        common_name: "{{ csr_common_name }}"
+      when: provision_certificate
+
+    - name: Read CSR content
+      set_fact:
+        csr_pem: "{{ lookup('file', cert_dir ~ '/device.csr.pem') }}"
+      when: provision_certificate
+
+  tasks:
+    - name: Ensure Thing/Policy (and optional Cert + attachments) via CloudFormation
+      amazon.aws.cloudformation:
+        stack_name: "iot-dr-{{ thing_name }}"
+        region: "{{ aws_dr_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        disable_rollback: true
+        template_body: |
+          AWSTemplateFormatVersion: '2010-09-09'
+          Description: IoT Core DR resources – Thing, Policy, optional Certificate + attachments
+          Conditions:
+            CreateNewCert: {{ 'true' if provision_certificate else 'false' }}
+            HasExistingCert: !Not [ !Equals [ "{{ existing_certificate_arn }}", "" ] ]
+            DoAttach: !Or [ CreateNewCert, HasExistingCert ]
+
+          Resources:
+            DRThing:
+              Type: AWS::IoT::Thing
+              Properties:
+                ThingName: "{{ thing_name }}"
+              # Ref returns thing name
+
+            DRPolicy:
+              Type: AWS::IoT::Policy
+              Properties:
+                PolicyName: "{{ iot_policy_name }}"
+                PolicyDocument: {{ iot_policy_obj | to_nice_json }}
+              # Ref returns policy name
+
+            DRCert:
+              Condition: CreateNewCert
+              Type: AWS::IoT::Certificate
+              Properties:
+                CertificateSigningRequest: |
+                  {{ csr_pem | trim }}
+                Status: ACTIVE
+                CertificateMode: DEFAULT
+              # Ref returns certificate ID; GetAtt Arn returns cert ARN
+
+            AttachPolicyToPrincipal:
+              Condition: DoAttach
+              Type: AWS::IoT::PolicyPrincipalAttachment
+              Properties:
+                PolicyName: !Ref DRPolicy
+                Principal: !If
+                  - CreateNewCert
+                  - !GetAtt DRCert.Arn
+                  - "{{ existing_certificate_arn }}"
+
+            AttachThingPrincipal:
+              Condition: DoAttach
+              Type: AWS::IoT::ThingPrincipalAttachment
+              Properties:
+                ThingName: !Ref DRThing
+                Principal: !If
+                  - CreateNewCert
+                  - !GetAtt DRCert.Arn
+                  - "{{ existing_certificate_arn }}"
+
+          Outputs:
+            ThingName:
+              Value: !Ref DRThing
+            PolicyName:
+              Value: !Ref DRPolicy
+            CertificateArn:
+              Condition: CreateNewCert
+              Value: !GetAtt DRCert.Arn
+            CertificateId:
+              Condition: CreateNewCert
+              Value: !Ref DRCert
+        tags: "{{ common_tags }}"
+      register: cfn
+
+    - name: Show created/attached resources
+      debug:
+        msg:
+          - "Thing: {{ cfn.stack_outputs.ThingName | default(thing_name) }}"
+          - "Policy: {{ cfn.stack_outputs.PolicyName | default(iot_policy_name) }}"
+          - "CertificateArn: {{ cfn.stack_outputs.CertificateArn | default(existing_certificate_arn | default('')) }}"
+          - "CertificateId: {{ cfn.stack_outputs.CertificateId | default('') }}"

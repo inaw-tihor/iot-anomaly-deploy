@@ -1,0 +1,87 @@
+---
+- name: Enable S3 replication on data lake bucket (minimal-cost)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    aws_primary_region: ap-south-1
+    aws_account_id: "123456789012"
+    tenant_id: your-tenant
+
+    s3_data_lake_bucket: your-source-bucket
+    s3_data_lake_bucket_dr: your-destination-bucket
+
+    # Cost controls
+    replication_prefix: ""            # set to a prefix (e.g. "raw/") to limit scope and reduce cost
+    destination_storage_class: STANDARD_IA   # cheaper at rest; retrieval has a fee
+
+  tasks:
+    # Replication requires versioning on BOTH buckets
+    - name: Ensure versioning on source bucket
+      amazon.aws.s3_bucket:
+        name: "{{ s3_data_lake_bucket }}"
+        region: "{{ aws_primary_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        versioning: true
+
+    - name: Ensure versioning on destination bucket
+      amazon.aws.s3_bucket:
+        name: "{{ s3_data_lake_bucket_dr }}"
+        region: "{{ aws_primary_region }}"
+        profile: "{{ aws_profile }}"
+        state: present
+        versioning: true
+
+    - name: Build desired replication configuration (JSON)
+      set_fact:
+        replication_cfg:
+          Role: "arn:aws:iam::{{ aws_account_id }}:role/s3-replication-role-{{ tenant_id }}"
+          Rules:
+            - ID: "replicate-data-lake"
+              Status: "Enabled"
+              Priority: 1
+              # V2 schema: use Filter + DeleteMarkerReplication
+              Filter:
+                Prefix: "{{ replication_prefix }}"   # "" = all objects
+              DeleteMarkerReplication:
+                Status: "Disabled"                   # small savings; skip delete-marker replication
+              Destination:
+                Bucket: "arn:aws:s3:::{{ s3_data_lake_bucket_dr }}"
+                StorageClass: "{{ destination_storage_class }}"
+
+    - name: Read existing replication config (if any)
+      ansible.builtin.command:
+        cmd: >
+          aws s3api get-bucket-replication
+          --bucket {{ s3_data_lake_bucket }}
+          --profile {{ aws_profile }}
+          --region {{ aws_primary_region }}
+      register: current_repl
+      failed_when: false
+      changed_when: false
+
+    - name: Decide if update is needed
+      set_fact:
+        need_update: "{{ (current_repl.rc != 0) or ((current_repl.stdout | default('{}') | from_json) != replication_cfg) }}"
+
+    - name: Write replication config to a temp file (only if needed)
+      ansible.builtin.copy:
+        dest: "/tmp/replication-{{ s3_data_lake_bucket }}.json"
+        content: "{{ replication_cfg | to_nice_json }}"
+        mode: "0600"
+      when: need_update
+
+    - name: Put replication configuration (idempotent)
+      ansible.builtin.command:
+        cmd: >
+          aws s3api put-bucket-replication
+          --bucket {{ s3_data_lake_bucket }}
+          --replication-configuration file:///tmp/replication-{{ s3_data_lake_bucket }}.json
+          --profile {{ aws_profile }}
+          --region {{ aws_primary_region }}
+      when: need_update
+      register: put_repl
+      changed_when: need_update

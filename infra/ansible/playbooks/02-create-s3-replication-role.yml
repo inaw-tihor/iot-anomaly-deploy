@@ -1,0 +1,61 @@
+---
+- name: Create S3 replication role and policy (native modules, minimal cost)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    tenant_id: your-tenant
+    s3_data_lake_bucket: your-source-bucket
+    s3_data_lake_bucket_dr: your-destination-bucket
+
+    trust_policy:
+      Version: "2012-10-17"
+      Statement:
+        - Effect: Allow
+          Principal:
+            Service: s3.amazonaws.com
+          Action: sts:AssumeRole
+
+    # Minimal permissions per AWS docs: read source + replicate to destination.
+    replication_policy:
+      Version: "2012-10-17"
+      Statement:
+        - Effect: Allow
+          Action:
+            - s3:GetReplicationConfiguration
+            - s3:ListBucket
+          Resource:
+            - "arn:aws:s3:::{{ s3_data_lake_bucket }}"
+        - Effect: Allow
+          Action:
+            - s3:GetObjectVersionForReplication
+            - s3:GetObjectVersionAcl
+            - s3:GetObjectVersionTagging
+          Resource:
+            - "arn:aws:s3:::{{ s3_data_lake_bucket }}/*"
+        - Effect: Allow
+          Action:
+            - s3:ReplicateObject
+            - s3:ReplicateDelete
+            - s3:ReplicateTags
+          Resource: "arn:aws:s3:::{{ s3_data_lake_bucket_dr }}/*"
+
+  tasks:
+    - name: Ensure IAM role for S3 replication exists
+      amazon.aws.iam_role:
+        name: "s3-replication-role-{{ tenant_id }}"
+        assume_role_policy_document: "{{ trust_policy }}"
+        description: "Role assumed by S3 to replicate {{ s3_data_lake_bucket }} -> {{ s3_data_lake_bucket_dr }}"
+        profile: "{{ aws_profile }}"
+        state: present
+
+    - name: Attach minimal inline policy to the role
+      amazon.aws.iam_policy:
+        iam_type: role
+        iam_name: "s3-replication-role-{{ tenant_id }}"
+        policy_name: "s3-replication-policy"
+        policy_json: "{{ replication_policy | to_json }}"
+        profile: "{{ aws_profile }}"
+        state: present

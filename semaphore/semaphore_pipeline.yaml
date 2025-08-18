@@ -1,0 +1,57 @@
+pipeline:
+  name: "Primary + DR bootstrap for IoT Anomaly Detection"
+  steps:
+    - name: "01 - Create Primary resources"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/01-create-prim-resources.yml
+
+    - name: "02 - Create replication IAM role"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/02-create-s3-replication-role.yml
+
+    - name: "03 - Enable S3 replication"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/03-enable-s3-replication.yml
+
+    - name: "04 - Create DynamoDB Global Table"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/04-create-dynamodb-global.yml
+
+    - name: "05 - Sync model artifacts to DR"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/05-sync-models-to-dr.yml
+
+    - name: "06 - Create SageMaker model in DR"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/06-create-sagemaker-dr.yml
+
+    - name: "07 - Create Kinesis stream in DR"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/07-create-kinesis-dr.yml
+
+    - name: "08 - Create IoT resources in DR"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/08-create-iot-dr.yml
+
+    - name: "09 - Distribute certs to edge devices"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/cert_rollout.yml
+
+    - name: "10 - Push dual-publish config to edge devices"
+      commands:
+        - cd infra/ansible
+        - ansible-playbook -i inventories/hosts.ini playbooks/greengrass_dual_publish.yml
+
+    - name: "11 - Validate replication & smoke tests"
+      commands:
+        - cd validate
+        - ./validate_replication.sh

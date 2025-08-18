@@ -1,0 +1,211 @@
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# Play 1: Create/attach IoT cert+keys on AWS and save locally (controller host)
+# ──────────────────────────────────────────────────────────────────────────────
+- name: Create cert and prepare rollout (primary region)
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    aws_profile: default
+    aws_primary_region: ap-south-1
+
+    thing_name: my-device
+    iot_policy_name: my-iot-policy
+
+    # Where to write artifacts on the controller for distribution
+    local_files_dir: "../files/iot/{{ thing_name }}"
+    cert_pem_path: "{{ local_files_dir }}/{{ thing_name }}-cert.pem"
+    priv_key_path: "{{ local_files_dir }}/{{ thing_name }}-private.key"
+    pub_key_path:  "{{ local_files_dir }}/{{ thing_name }}-public.key"
+
+    # Control rotation/creation behavior
+    force_rotate: false   # set true to mint a new cert+keys even if one exists
+
+  collections:
+    - community.aws
+
+  tasks:
+    - name: Ensure local files dir exists
+      ansible.builtin.file:
+        path: "{{ local_files_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check if cert/key already exist locally
+      ansible.builtin.stat:
+        path: "{{ cert_pem_path }}"
+      register: cert_stat
+
+    - name: List principals already attached to the thing (idempotency check)
+      community.aws.aws_caller:
+        service: iot
+        method: list_thing_principals
+        region: "{{ aws_primary_region }}"
+        profile: "{{ aws_profile }}"
+        params:
+          thingName: "{{ thing_name }}"
+      register: thing_principals
+
+    - name: Decide whether to create a new certificate
+      ansible.builtin.set_fact:
+        need_new_cert: >-
+          {{
+            force_rotate
+            or (thing_principals.response.principals | default([]) | length == 0)
+            or (not cert_stat.stat.exists)
+          }}
+
+    - name: Create keys and certificate (ACTIVE) when needed
+      community.aws.aws_caller:
+        service: iot
+        method: create_keys_and_certificate
+        region: "{{ aws_primary_region }}"
+        profile: "{{ aws_profile }}"
+        params:
+          setAsActive: true
+      when: need_new_cert
+      register: create_cert
+
+    - name: Save certificate PEM
+      ansible.builtin.copy:
+        content: "{{ (need_new_cert | ternary(create_cert.response.certificatePem, '') ) }}"
+        dest: "{{ cert_pem_path }}"
+        mode: "0644"
+      when: need_new_cert
+
+    - name: Save private key (PEM)
+      ansible.builtin.copy:
+        content: "{{ create_cert.response.keyPair.PrivateKey }}"
+        dest: "{{ priv_key_path }}"
+        mode: "0600"
+      when: need_new_cert
+
+    - name: Save public key (PEM)
+      ansible.builtin.copy:
+        content: "{{ create_cert.response.keyPair.PublicKey }}"
+        dest: "{{ pub_key_path }}"
+        mode: "0644"
+      when: need_new_cert
+
+    - name: Attach policy to the certificate principal
+      community.aws.aws_caller:
+        service: iot
+        method: attach_policy
+        region: "{{ aws_primary_region }}"
+        profile: "{{ aws_profile }}"
+        params:
+          policyName: "{{ iot_policy_name }}"
+          target: "{{ (need_new_cert
+                     | ternary(create_cert.response.certificateArn,
+                              thing_principals.response.principals[0])) }}"
+      when: need_new_cert
+
+    - name: Attach certificate principal to the thing
+      community.aws.aws_caller:
+        service: iot
+        method: attach_thing_principal
+        region: "{{ aws_primary_region }}"
+        profile: "{{ aws_profile }}"
+        params:
+          thingName: "{{ thing_name }}"
+          principal: "{{ (need_new_cert
+                         | ternary(create_cert.response.certificateArn,
+                                  thing_principals.response.principals[0])) }}"
+      when: need_new_cert
+
+    # Optional: if the thing already had a principal but local files are missing,
+    # we can fetch the cert PEM (NOT the private key) so at least the device cert is available.
+    - name: Rehydrate cert PEM locally when principal exists but file missing
+      when:
+        - not need_new_cert
+        - not cert_stat.stat.exists
+        - (thing_principals.response.principals | default([]) | length) > 0
+      block:
+        - name: Extract certificateId from ARN
+          ansible.builtin.set_fact:
+            existing_cert_arn: "{{ thing_principals.response.principals[0] }}"
+            existing_cert_id: "{{ (thing_principals.response.principals[0] | regex_search('cert/(.*)$')) }}"
+        - name: Describe certificate to get PEM
+          community.aws.aws_caller:
+            service: iot
+            method: describe_certificate
+            region: "{{ aws_primary_region }}"
+            profile: "{{ aws_profile }}"
+            params:
+              certificateId: "{{ existing_cert_id }}"
+          register: desc_cert
+        - name: Save certificate PEM (note: private key cannot be recovered)
+          ansible.builtin.copy:
+            content: "{{ desc_cert.response.certificateDescription.certificatePem }}"
+            dest: "{{ cert_pem_path }}"
+            mode: "0644"
+
+    - name: Final summary (controller)
+      ansible.builtin.debug:
+        msg:
+          - "Thing: {{ thing_name }}"
+          - "Cert (PEM): {{ cert_pem_path }}"
+          - "Private key: {{ priv_key_path if need_new_cert else 'unchanged (not recoverable if missing)'}}"
+          - "Policy: {{ iot_policy_name }}"
+          - "Principal ARN: {{ (need_new_cert | ternary(create_cert.response.certificateArn,
+                                 (thing_principals.response.principals | default([None]))[0])) }}"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Play 2: Distribute to edge devices and restart Greengrass
+# ──────────────────────────────────────────────────────────────────────────────
+- name: Distribute certs to edge devices
+  hosts: edge_devices
+  become: yes
+  gather_facts: no
+
+  vars:
+    edge_credentials_dest: /etc/greengrass/certs
+    thing_name: my-device   # keep in sync with Play 1
+    local_files_dir: "../files/iot/{{ thing_name }}"
+    cert_pem_path: "{{ local_files_dir }}/{{ thing_name }}-cert.pem"
+    priv_key_path: "{{ local_files_dir }}/{{ thing_name }}-private.key"
+
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ edge_credentials_dest }}"
+        state: directory
+        mode: "0750"
+
+    - name: Copy device certificate to device
+      ansible.builtin.copy:
+        src: "{{ cert_pem_path }}"
+        dest: "{{ edge_credentials_dest }}/device.cert.pem"
+        mode: "0644"
+
+    - name: Copy private key to device
+      ansible.builtin.copy:
+        src: "{{ priv_key_path }}"
+        dest: "{{ edge_credentials_dest }}/device.private.key"
+        mode: "0600"
+
+    - name: Download Amazon Root CA (if not present)
+      ansible.builtin.get_url:
+        url: https://www.amazontrust.com/repository/AmazonRootCA1.pem
+        dest: "{{ edge_credentials_dest }}/AmazonRootCA1.pem"
+        mode: "0644"
+        force: no
+
+    - name: Restart Greengrass via systemd (if present)
+      ansible.builtin.service:
+        name: greengrass
+        state: restarted
+      failed_when: false
+
+    - name: Fallback Greengrass launcher (v1 or custom installs)
+      ansible.builtin.shell: |
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl restart greengrass || true
+        elif [ -x /greengrass/greengrassd ]; then
+          /greengrass/greengrassd restart || /greengrass/greengrassd start || true
+        fi
+      args:
+        warn: false
+      changed_when: true
