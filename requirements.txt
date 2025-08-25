@@ -1,0 +1,33 @@
+streamlit
+langchain
+transformers
+accelerate
+torch
+sentencepiece
+langchain-core
+sentence-transformers
+einops
+faiss-cpu
+pypdfium2
+mkdocs
+mkdocs-material
+langchain_community
+langchain_ollama
+langchain_huggingface         
+pip install -U pip setuptools wheel
+pip uninstall -y sentence-transformers transformers torch torchvision torchaudio
+pip install "torch==2.2.2" \
+            "transformers==4.41.2" \
+            "sentence-transformers==2.2.2" \
+            "langchain==0.2.*" "langchain-community==0.2.*" \
+            "requests" "beautifulsoup4"
+pip install "langchain-huggingface==0.3.1"
+pip uninstall -y huggingface_hub
+pip install "huggingface_hub==0.34.4" "langchain-huggingface==0.3.1"
+pip install -U "torch==2.2.2" "transformers==4.41.2" "sentence-transformers==2.7.0"
+pip install "faiss-cpu==1.12.0"
+pip install "faiss-cpu==1.11.0.post1"
+pip install "faiss-cpu==1.8.0.post1"
+pip install streamlit
+pip install boto3
+

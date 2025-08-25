@@ -1,0 +1,41 @@
+-------
+test
+IOT_ENDPOINT=$(aws iot describe-endpoint \
+  --endpoint-type iot:Data-ATS \
+  --region "$AWS_PRIMARY_REGION" \
+  --profile "$AWS_PROFILE" \
+  --query endpointAddress --output text)
+
+curl -o AmazonRootCA1.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem
+
+brew install mosquitto
+
+mosquitto_sub \
+  --cafile AmazonRootCA1.pem \
+  --cert "cert-${THING_NAME}.pem" \
+  --key  "private-${THING_NAME}.key" \
+  -h "$IOT_ENDPOINT" -p 8883 -q 1 \
+  -t "tenants/${TENANT_ID}/devices/${THING_NAME}/cmd" \
+  -i "${THING_NAME}"
+
+mosquitto_pub \
+  --cafile AmazonRootCA1.pem \
+  --cert "cert-${THING_NAME}.pem" \
+  --key  "private-${THING_NAME}.key" \
+  -h "$IOT_ENDPOINT" -p 8883 -q 1 \
+  -t "tenants/${TENANT_ID}/devices/${THING_NAME}/telemetry" \
+  -m '{"cmd":"ping"}' \
+  -i "${THING_NAME}"
+
+
+curl -fsSL -o AmazonRootCA1.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem
+CERT="cert-${THING_NAME}.pem"
+KEY="private-${THING_NAME}.key"
+mosquitto_pub \
+  --cafile AmazonRootCA1.pem \
+  --cert  "$CERT" \
+  --key   "$KEY" \
+  -h "$IOT_ENDPOINT" -p 8883 -q 1 \
+  -t "tenants/${TENANT_ID}/devices/${THING_NAME}/telemetry" \
+  -m '{"cmd":"ping"}' \
+  -i "${THING_NAME}"

@@ -1,0 +1,45 @@
+
+site_name: Industrial IoT Anomaly — Ops Runbook
+site_description: CLI-first operations runbook for Industrial IoT Anomaly Detection with Primary/DR, aligned to AWS reference architecture.
+site_url: http://localhost:8000/
+repo_url: https://github.com/inaw-tihor/iot-anomaly-deploy
+theme:
+  name: material
+  features:
+    - navigation.expand
+    - navigation.sections
+    - toc.integrate
+    - content.code.copy
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - attr_list
+  - def_list
+  - tables
+  - fenced_code
+  - codehilite
+  - footnotes
+
+nav:
+  - Home: index.md
+  - Reference Architecture: architecture.md
+  - Prereqs & Inputs: prereqs-inputs.md
+  - Local Tooling (Optional): tooling.md
+  - Deployment:
+      - Primary Region: deployment-primary.md
+      - DR / Replica Region: deployment-dr.md
+  - Tenant Onboarding:
+      - "Track A: IoT Things": onboarding-things.md
+      - "Track B: Greengrass": onboarding-greengrass.md
+  - Validation: validation.md
+  - Monitoring & Observability: observability.md
+  - Security & Upgrades: security.md
+  - Backup & Restore: backup-restore.md
+  - DR / Failover: dr-failover.md
+  - Cleanup: cleanup.md
+  - Troubleshooting: troubleshooting.md
+  - FAQs: faq.md
+  - Repo Pointers: repo.md

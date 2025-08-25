@@ -1,0 +1,49 @@
+TENANT_ID="tenant0011" 
+THING_NAME="${TENANT_ID}-device1"
+POLICY_FILE="./infra/ansible/files/iot_policy.json"
+IOT_POLICY_NAME="${THING_NAME}-policy"
+AWS_PRIMARY_REGION="us-east-1"
+AWS_PROFILE="default"
+AWS_ACCOUNT_ID="247590354562"
+
+
+# create the policy (first time)
+aws iot create-policy \
+  --policy-name "$IOT_POLICY_NAME" \
+  --policy-document file://"$POLICY_FILE" \
+  --region "$AWS_PRIMARY_REGION" --profile "$AWS_PROFILE"
+
+aws iot create-thing --thing-name "$THING_NAME"   --region "$AWS_PRIMARY_REGION" --profile "$AWS_PROFILE"
+
+aws iot create-keys-and-certificate --set-as-active \
+  --certificate-pem-outfile "cert-${THING_NAME}.pem" \
+  --public-key-outfile "public-${THING_NAME}.key" \
+  --private-key-outfile "private-${THING_NAME}.key" \
+  --region "$AWS_PRIMARY_REGION" \
+  --profile "$AWS_PROFILE" \
+  --output json \
+  --query '{certificateArn:certificateArn,certificateId:certificateId}' \
+   | tee cert-output.json
+
+export CERT_ARN=$(jq -r '.certificateArn' cert-output.json)
+export CERT_ID=$(jq -r '.certificateId' cert-output.json)
+
+# lock down file perms
+chmod 600 "private-${THING_NAME}.key"
+chmod 644 "cert-${THING_NAME}.pem" "public-${THING_NAME}.key"
+
+
+# attach the policy to your certificate
+aws iot attach-policy \
+  --policy-name "$IOT_POLICY_NAME" \
+  --target "$CERT_ARN" \
+  --region "$AWS_PRIMARY_REGION" --profile "$AWS_PROFILE"
+
+aws iot attach-thing-principal --thing-name "$THING_NAME" --principal "$CERT_ARN" \
+  --region "$AWS_PRIMARY_REGION" --profile "$AWS_PROFILE"
+
+curl -fsSL -o AmazonRootCA1.pem https://www.amazontrust.com/repository/AmazonRootCA1.pem
+
+
+
+

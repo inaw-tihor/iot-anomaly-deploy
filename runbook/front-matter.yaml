@@ -1,0 +1,24 @@
+---
+doc_type: "runbook"
+title: "Industrial IoT Anomaly Detection — Operations Cookbook"
+slug: "iot-anomaly-ops"
+version: "1.0"
+service: "iot-anomaly-platform"
+owners:
+  - team: "DevOps"
+    contact: "devops@example.com"
+  - team: "SRE"
+    contact: "sre@example.com"
+audience: ["DevOps","SRE","Cloud Operations"]
+envs: ["dev","stg","prod"]
+regions: ["us-east-1","us-west-2"]
+rto: "15m"
+rpo: "5m"
+tags: ["aws","iot","kinesis","sagemaker","dynamodb","s3","greengrass","argocd","ansible","rancher","dr"]
+last_reviewed: "2024-06-15"
+links:
+  repo: "https://github.com/inaw-tihor/iot-anomaly-deploy"
+  dashboards: "<quicksight/grafana urls>"
+  alerts: "<pager/slack policy>"
+  pipeline: "<semaphore/argocd url>"
+---

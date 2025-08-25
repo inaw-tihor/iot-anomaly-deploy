@@ -8,10 +8,10 @@
     aws_primary_region: ap-south-1
     aws_profile: default
 
-    s3_data_lake_bucket: your-datalake-bucket
-    s3_model_bucket: your-model-bucket
-    s3_backup_bucket: your-backup-bucket
-    dynamodb_table: your-ddb-table
+    s3_data_lake_bucket: tenant-0011-bucket
+    s3_model_bucket: tenant-0011-model-bucket
+    s3_backup_bucket: tenant-0011-backup-bucket
+    dynamodb_table: tenant-0011-ddb-table
 
     common_tags:
       Project: GENAI4SAAS

@@ -10,9 +10,9 @@
         "iot:Receive"
       ],
       "Resource": [
-        "arn:aws:iot:us-east-1:247590354562:client/*",
-        "arn:aws:iot:us-east-1:247590354562:topic/*",
-        "arn:aws:iot:us-east-1:247590354562:topicfilter/*"
+        "arn:aws:iot:${AWS_REGION}:${AWS_ACCOUNT_ID}:client/${THING_NAME}",
+        "arn:aws:iot:${AWS_REGION}:${AWS_ACCOUNT_ID}:topic/*",
+        "arn:aws:iot:${AWS_REGION}:${AWS_ACCOUNT_ID}:topicfilter/*"
       ]
     }
   ]

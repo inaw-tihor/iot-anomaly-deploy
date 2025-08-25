@@ -7,7 +7,7 @@
   vars:
     aws_profile: default
     aws_primary_region: ap-south-1
-    aws_account_id: "123456789012"
+    aws_account_id: "247590354562"
     tenant_id: your-tenant
 
     s3_data_lake_bucket: your-source-bucket
