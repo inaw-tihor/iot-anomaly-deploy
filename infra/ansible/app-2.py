@@ -9,8 +9,61 @@
 # - Editor + logs + chat history + related chunks
 # - MkDocs site loader (via Material search index)
 
+def inject_print_css():
+    st.markdown(
+        """
+        <style>
+        /* Print-only rules */
+        @media print {
+          /* Hide Streamlit chrome & interactive controls */
+          [data-testid="stSidebar"],
+          [data-testid="stToolbar"],
+          [data-testid="stHeader"],
+          footer,
+          .stButton, .stDownloadButton, button,
+          textarea, input, select,
+          .stTextInput, .stTextArea, .stNumberInput,
+          .stSlider, .stDateInput, .stFileUploader, .stMultiSelect, .stRadio, .stSelectbox {
+            display: none !important;
+          }
+
+          /* Use full width, add margins for paper */
+          [data-testid="stAppViewContainer"] { margin: 0 !important; padding: 0 !important; }
+          .block-container { padding: 12mm !important; }
+
+          /* Stack columns to avoid horizontal compression overlap */
+          [data-testid="column"] { display: block !important; width: 100% !important; }
+
+          /* Expanders: print content only; keep it open */
+          [data-testid="stExpander"] summary { display: none !important; }
+          [data-testid="stExpander"] div[role="region"] { display: block !important; }
+
+          /* Avoid overlaps & clipping */
+          [data-testid="stAppViewContainer"],
+          .block-container,
+          [data-testid="stVerticalBlock"],
+          [data-testid="stMarkdownContainer"] {
+            overflow: visible !important;
+          }
+
+          /* Page-break hygiene */
+          [data-testid="stVerticalBlock"],
+          [data-testid="stMarkdownContainer"],
+          [data-testid="stCodeBlock"] {
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
+          }
+          h1, h2, h3 { page-break-after: avoid !important; }
+          pre, code { white-space: pre-wrap !important; word-break: break-word; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ---------- CONSTANTS ----------
-APP_TITLE = "RAG Cloud Agent (FAISS-Powered)"
+APP_TITLE = "CookBook Agent"
 DEFAULT_REGION = "us-east-1"
 
 # Embeddings / Vector DB
@@ -73,7 +126,12 @@ torch_classes_dummy.__path__ = []
 sys.modules["torch.classes"] = torch_classes_dummy
 
 # ---------- UI / SESSION ----------
+st.set_page_config(page_title=APP_TITLE, layout="wide")  # if you use this, keep it first
 st.title(APP_TITLE)
+# inject print styles once
+if "_print_css" not in st.session_state:
+    inject_print_css()
+    st.session_state["_print_css"] = True
 
 for key in [
     "retriever", "vectorstore", "generated_script", "responses",
@@ -458,28 +516,28 @@ def build_faiss_index(docs: List[Document], save_dir: str) -> FAISS:
 
 def load_faiss_index(load_dir: str) -> FAISS:
     if not os.path.isdir(load_dir):
-        raise FileNotFoundError(f"FAISS index directory not found: {load_dir}")
+        raise FileNotFoundError(f"Vector DB index directory not found: {load_dir}")
     # allow_dangerous_deserialization=True is required due to pickled docstore
     return FAISS.load_local(load_dir, embeddings, allow_dangerous_deserialization=True)
 
 col_build, col_load = st.columns(2)
 with col_build:
-    if st.button("Build FAISS Index"):
+    if st.button("Build Vector Index"):
         if st.session_state.chunks:
             st.session_state.vectorstore = build_faiss_index(st.session_state.chunks, FAISS_DIR)
             st.session_state.retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": top_k})
-            st.success(f"✅ Built & saved FAISS index → {FAISS_DIR}")
+            st.success(f"✅ Built & saved Vector index → {FAISS_DIR}")
         else:
             st.warning("No chunks to embed.")
 
 with col_load:
-    if st.button("Load FAISS Index"):
+    if st.button("Load Vector Index"):
         try:
             st.session_state.vectorstore = load_faiss_index(FAISS_DIR)
             st.session_state.retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": top_k})
-            st.success(f"✅ Loaded FAISS index from {FAISS_DIR}")
+            st.success(f"✅ Loaded Vector index from {FAISS_DIR}")
         except Exception as e:
-            st.error(f"❌ Error loading FAISS: {e}")
+            st.error(f"❌ Error loading Vector: {e}")
 
 # ---------- LLM & ORCHESTRATION ----------
 llm = OllamaLLM(model=OLLAMA_MODEL)
@@ -531,7 +589,7 @@ if generate and user_query and st.session_state.retriever:
         top_doc, top_sim = results_scored[0]
         if top_sim >= sim_threshold:
             st.session_state.generated_script = top_doc.page_content
-            st.success(f"✅ Reused high-similarity match from FAISS (sim≈{top_sim:.3f}).")
+            st.success(f"✅ Reused high-similarity match from Vector DB (sim≈{top_sim:.3f}).")
         else:
             # 4) Retrieval-grounded generation
             qa = RetrievalQA.from_chain_type(
@@ -621,6 +679,6 @@ for item in st.session_state.history:
             st.code(ch)
 
 st.caption(
-    "This app always searches the FAISS vector DB first. If no high-similarity match is found, "
+    "This app always searches the vector DB first. If no high-similarity match is found, "
     "it generates grounded artifacts using retrieved context. CLI execution is gated by a safety toggle."
 )
